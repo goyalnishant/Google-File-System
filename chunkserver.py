@@ -8,6 +8,7 @@ from commons.errors import FileNotFoundErr
 from commons.loggers import request_logger
 from commons.settings import DEFAULT_MASTER_ADDR, DEFAULT_IP, CHUNK_SIZE
 from commons.utils import rpc_call, ensure_dir
+from cs_metadata_manager import update_metadata, OplogActions, load_metadata
 
 
 class ChunkServer:
@@ -291,6 +292,8 @@ class ChunkServer:
                 if os.path.exists(f'{self.path}/{chunk}'):
                     log.info("Deleting Chunk with chunk handle %s", chunk)
                     os.remove(f'{self.path}/{chunk}')
+                    update_metadata(self.metadata_file, OplogActions.DELETE_CHUNK,
+                                    chunk)
                     del self.chunks[chunk]
                 else:
                     log.error("Unable to delete chunk %s", chunk)
@@ -302,6 +305,11 @@ class ChunkServer:
 def report_chunk(cs, chunk_info):
     ms = rpc_call(cs.master_addr)
 
+    # Updating ChunkServer Operational Log
+    update_metadata(cs.metadata_file, OplogActions.WRITE_CHUNK,
+                    chunk_info.chunk_handle, chunk_info.chunk_index,
+                    chunk_info.length, chunk_info.path)
+
     # TODO: receive returned error if any
     ms.report_chunk(cs.my_addr, chunk_info.chunk_handle, chunk_info.chunk_index, chunk_info.length, chunk_info.path)
 
@@ -311,7 +319,7 @@ def start_chunkserver(master_addr, my_ip, my_port, path):
 
     my_address = f'http://{my_ip}:{my_port}'
     cs = ChunkServer(my_address, master_addr, path)
-
+    load_metadata(cs)
     chunk_server = SimpleXMLRPCServer((my_ip, my_port),
                                       logRequests=True,
                                       allow_none=True)
